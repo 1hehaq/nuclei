@@ -320,8 +320,8 @@ func (request *Request) Compile(options *protocols.ExecutorOptions) error {
 			timeoutVal = 5
 		}
 
-		// Add 3x buffer to the timeout
-		customTimeout = int(math.Ceil(float64(timeoutVal) * 3))
+		// Add 5x buffer to the timeout
+		customTimeout = int(math.Ceil(float64(timeoutVal) * 5))
 	}
 	if customTimeout > 0 {
 		connectionConfiguration.Connection.CustomMaxTimeout = time.Duration(customTimeout) * time.Second
@@ -501,30 +501,23 @@ func (request *Request) Compile(options *protocols.ExecutorOptions) error {
 			request.Threads = options.GetThreadsForNPayloadRequests(request.Requests(), request.Threads)
 		}
 	}
+	return nil
+}
 
+// RebuildGenerator rebuilds the generator for the request
+func (request *Request) RebuildGenerator() error {
+	generator, err := generators.New(request.Payloads, request.AttackType.Value, request.options.TemplatePath, request.options.Catalog, request.options.Options.AttackType, request.options.Options)
+	if err != nil {
+		return errors.Wrap(err, "could not parse payloads")
+	}
+	request.generator = generator
 	return nil
 }
 
 // Requests returns the total number of requests the YAML rule will perform
 func (request *Request) Requests() int {
-	if request.generator != nil {
-		payloadRequests := request.generator.NewIterator().Total()
-		if len(request.Raw) > 0 {
-			payloadRequests = payloadRequests * len(request.Raw)
-		}
-		if len(request.Path) > 0 {
-			payloadRequests = payloadRequests * len(request.Path)
-		}
-		return payloadRequests
-	}
-	if len(request.Raw) > 0 {
-		requests := len(request.Raw)
-		if requests == 1 && request.RaceNumberRequests != 0 {
-			requests *= request.RaceNumberRequests
-		}
-		return requests
-	}
-	return len(request.Path)
+	generator := request.newGenerator(false)
+	return generator.Total()
 }
 
 const (

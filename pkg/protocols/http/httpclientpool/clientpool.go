@@ -113,6 +113,7 @@ func (c *Configuration) Clone() *Configuration {
 	if c.Connection != nil {
 		cloneConnection := &ConnectionConfiguration{
 			DisableKeepAlive: c.Connection.DisableKeepAlive,
+			CustomMaxTimeout: c.Connection.CustomMaxTimeout,
 		}
 		if c.Connection.HasCookieJar() {
 			cookiejar := *c.Connection.GetCookieJar()
@@ -305,6 +306,14 @@ func wrappedGet(options *types.Options, configuration *Configuration) (*retryabl
 			conn, err := dc.DialContext(ctx, network, addr)
 			if err != nil {
 				return nil, err
+			}
+			if tlsConfig.ServerName == "" {
+				// addr should be in form of host:port already set from canonicalAddr
+				host, _, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, err
+				}
+				tlsConfig.ServerName = host
 			}
 			return tls.Client(conn, tlsConfig), nil
 		}

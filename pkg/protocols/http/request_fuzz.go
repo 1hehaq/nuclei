@@ -62,6 +62,7 @@ func (request *Request) executeFuzzingRule(input *contextargs.Context, previous 
 		if err != nil {
 			return errors.Wrap(err, "fuzz: could not build request obtained from target file")
 		}
+		request.addHeadersToRequest(baseRequest)
 		input.MetaInput.Input = baseRequest.URL.String()
 		// execute with one value first to checks its applicability
 		err = request.executeAllFuzzingRules(input, previous, baseRequest, callback)
@@ -94,6 +95,7 @@ func (request *Request) executeFuzzingRule(input *contextargs.Context, previous 
 	}
 	userAgent := useragent.PickRandom()
 	baseRequest.Header.Set("User-Agent", userAgent.Raw)
+	request.addHeadersToRequest(baseRequest)
 
 	// execute with one value first to checks its applicability
 	err = request.executeAllFuzzingRules(inputx, previous, baseRequest, callback)
@@ -110,6 +112,12 @@ func (request *Request) executeFuzzingRule(input *contextargs.Context, previous 
 		gologger.Verbose().Msgf("[%s] fuzz: payload request execution failed : %s\n", request.options.TemplateID, err)
 	}
 	return nil
+}
+
+func (request *Request) addHeadersToRequest(baseRequest *retryablehttp.Request) {
+	for k, v := range request.Headers {
+		baseRequest.Header.Set(k, v)
+	}
 }
 
 // executeAllFuzzingRules executes all fuzzing rules defined in template for a given base request
@@ -223,10 +231,10 @@ func (request *Request) executeGeneratedFuzzingRequest(gr fuzz.GeneratedRequest,
 		return false
 	}
 	if requestErr != nil {
-		if request.options.HostErrorsCache != nil {
-			request.options.HostErrorsCache.MarkFailed(request.options.ProtocolType.String(), input, requestErr)
-		}
 		gologger.Verbose().Msgf("[%s] Error occurred in request: %s\n", request.options.TemplateID, requestErr)
+	}
+	if request.options.HostErrorsCache != nil {
+		request.options.HostErrorsCache.MarkFailedOrRemove(request.options.ProtocolType.String(), input, requestErr)
 	}
 	request.options.Progress.IncrementRequests()
 
