@@ -135,7 +135,9 @@ func process(opts options) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 
 	var errFile *os.File
 	if opts.errorLogFile != "" {
@@ -143,7 +145,9 @@ func process(opts options) error {
 		if err != nil {
 			gologger.Fatal().Msgf("could not open error log file: %s\n", err)
 		}
-		defer errFile.Close()
+		defer func() {
+			_ = errFile.Close()
+		}()
 	}
 
 	templateCatalog := disk.NewCatalog(filepath.Dir(opts.input))
@@ -226,7 +230,7 @@ func logErrMsg(path string, err error, debug bool, errFile *os.File) string {
 		msg = fmt.Sprintf("❌ template: %s err: %s\n", path, err)
 	}
 	if errFile != nil {
-		_, _ = errFile.WriteString(fmt.Sprintf("❌ template: %s err: %s\n", path, err))
+		_, _ = fmt.Fprintf(errFile, "❌ template: %s err: %s\n", path, err)
 	}
 	return msg
 }
@@ -397,7 +401,7 @@ func parseAndAddMaxRequests(catalog catalog.Catalog, path, data string) (string,
 
 // parseTemplate parses a template and returns the template object
 func parseTemplate(catalog catalog.Catalog, templatePath string) (*templates.Template, error) {
-	executorOpts := protocols.ExecutorOptions{
+	executorOpts := &protocols.ExecutorOptions{
 		Catalog: catalog,
 		Options: defaultOpts,
 	}

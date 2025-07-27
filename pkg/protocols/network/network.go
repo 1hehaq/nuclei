@@ -237,7 +237,9 @@ func (request *Request) Compile(options *protocols.ExecutorOptions) error {
 	}
 
 	// Create a client for the class
-	client, err := networkclientpool.Get(options.Options, &networkclientpool.Configuration{})
+	client, err := networkclientpool.Get(options.Options, &networkclientpool.Configuration{
+		CustomDialer: options.CustomFastdialer,
+	})
 	if err != nil {
 		return errors.Wrap(err, "could not get network client")
 	}
@@ -262,4 +264,9 @@ func (request *Request) Requests() int {
 
 func (request *Request) SetDialer(dialer *fastdialer.Dialer) {
 	request.dialer = dialer
+}
+
+// UpdateOptions replaces this request's options with a new copy
+func (r *Request) UpdateOptions(opts *protocols.ExecutorOptions) {
+	r.options.ApplyNewEngineOptions(opts)
 }
