@@ -12,6 +12,7 @@ import (
 	"github.com/projectdiscovery/nuclei/v3/pkg/utils/json"
 	"github.com/projectdiscovery/nuclei/v3/pkg/utils/stats"
 	yamlutil "github.com/projectdiscovery/nuclei/v3/pkg/utils/yaml"
+	"github.com/projectdiscovery/utils/errkit"
 	fileutil "github.com/projectdiscovery/utils/file"
 
 	"gopkg.in/yaml.v2"
@@ -82,7 +83,7 @@ func (p *Parser) LoadTemplate(templatePath string, t any, extraTags []string, ca
 	t, templateParseError := p.ParseTemplate(templatePath, catalog)
 	if templateParseError != nil {
 		checkOpenFileError(templateParseError)
-		return false, ErrCouldNotLoadTemplate.Msgf(templatePath, templateParseError)
+		return false, errkit.Newf("Could not load template %s: %s", templatePath, templateParseError)
 	}
 	template, ok := t.(*Template)
 	if !ok {
@@ -96,13 +97,13 @@ func (p *Parser) LoadTemplate(templatePath string, t any, extraTags []string, ca
 	validationError := validateTemplateMandatoryFields(template)
 	if validationError != nil {
 		stats.Increment(SyntaxErrorStats)
-		return false, ErrCouldNotLoadTemplate.Msgf(templatePath, validationError)
+		return false, errkit.Newf("Could not load template %s: %s", templatePath, validationError)
 	}
 
 	ret, err := isTemplateInfoMetadataMatch(tagFilter, template, extraTags)
 	if err != nil {
 		checkOpenFileError(err)
-		return ret, ErrCouldNotLoadTemplate.Msgf(templatePath, err)
+		return ret, errkit.Newf("Could not load template %s: %s", templatePath, err)
 	}
 	// if template loaded then check the template for optional fields to add warnings
 	if ret {
@@ -110,7 +111,7 @@ func (p *Parser) LoadTemplate(templatePath string, t any, extraTags []string, ca
 		if validationWarning != nil {
 			stats.Increment(SyntaxWarningStats)
 			checkOpenFileError(validationWarning)
-			return ret, ErrCouldNotLoadTemplate.Msgf(templatePath, validationWarning)
+			return ret, errkit.Newf("Could not load template %s: %s", templatePath, validationWarning)
 		}
 	}
 	return ret, nil
@@ -131,13 +132,13 @@ func (p *Parser) ParseTemplate(templatePath string, catalog catalog.Catalog) (an
 		_ = reader.Close()
 	}()
 
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	// pre-process directives only for local files
+	// For local YAML files, check if preprocessing is needed
+	var data []byte
 	if fileutil.FileExists(templatePath) && config.GetTemplateFormatFromExt(templatePath) == config.YAML {
+		data, err = io.ReadAll(reader)
+		if err != nil {
+			return nil, err
+		}
 		data, err = yamlutil.PreProcess(data)
 		if err != nil {
 			return nil, err
@@ -148,12 +149,28 @@ func (p *Parser) ParseTemplate(templatePath string, catalog catalog.Catalog) (an
 
 	switch config.GetTemplateFormatFromExt(templatePath) {
 	case config.JSON:
+		if data == nil {
+			data, err = io.ReadAll(reader)
+			if err != nil {
+				return nil, err
+			}
+		}
 		err = json.Unmarshal(data, template)
 	case config.YAML:
-		if p.NoStrictSyntax {
-			err = yaml.Unmarshal(data, template)
+		if data != nil {
+			// Already read and preprocessed
+			if p.NoStrictSyntax {
+				err = yaml.Unmarshal(data, template)
+			} else {
+				err = yaml.UnmarshalStrict(data, template)
+			}
 		} else {
-			err = yaml.UnmarshalStrict(data, template)
+			// Stream directly from reader
+			decoder := yaml.NewDecoder(reader)
+			if !p.NoStrictSyntax {
+				decoder.SetStrict(true)
+			}
+			err = decoder.Decode(template)
 		}
 	default:
 		err = fmt.Errorf("failed to identify template format expected JSON or YAML but got %v", templatePath)
@@ -162,7 +179,7 @@ func (p *Parser) ParseTemplate(templatePath string, catalog catalog.Catalog) (an
 		return nil, err
 	}
 
-	p.parsedTemplatesCache.Store(templatePath, template, data, nil)
+	p.parsedTemplatesCache.Store(templatePath, template, nil, nil) // don't keep raw bytes to save memory
 	return template, nil
 }
 
